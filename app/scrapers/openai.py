@@ -14,12 +14,17 @@ class OpenAIArticle(BaseModel):
     category: Optional[str] = None
     
 
-class OpenAIScraper:
+from .base import SourceAdapter
+
+class OpenAIScraper(SourceAdapter):
+    source_name = "OpenAI RSS"
+    source_type = "rss"
+
     def __init__(self):
         self.rss_url = "https://openai.com/news/rss.xml"
         self.converter = DocumentConverter()
 
-    def get_articles(self, hours: int = 24) -> List[OpenAIArticle]:
+    def fetch(self, hours: int = 24) -> List[OpenAIArticle]:
         feed = feedparser.parse(self.rss_url)
         if not feed.entries:
             return []
@@ -49,4 +54,4 @@ class OpenAIScraper:
   
 if __name__ == "__main__":
     scraper = OpenAIScraper()
-    articles: List[OpenAIArticle] = scraper.get_articles(hours=50)
+    articles: List[OpenAIArticle] = scraper.fetch(hours=50)

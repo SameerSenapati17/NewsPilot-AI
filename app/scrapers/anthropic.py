@@ -14,7 +14,12 @@ class AnthropicArticle(BaseModel):
     category: Optional[str] = None
 
 
-class AnthropicScraper:
+from .base import SourceAdapter
+
+class AnthropicScraper(SourceAdapter):
+    source_name = "Anthropic RSS"
+    source_type = "rss"
+
     def __init__(self):
         self.rss_urls = [
             "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml",
@@ -23,7 +28,7 @@ class AnthropicScraper:
         ]
         self.converter = DocumentConverter()
 
-    def get_articles(self, hours: int = 24) -> List[AnthropicArticle]:
+    def fetch(self, hours: int = 24) -> List[AnthropicArticle]:
         now = datetime.now(timezone.utc)
         cutoff_time = now - timedelta(hours=hours)
         articles = []
@@ -64,6 +69,6 @@ class AnthropicScraper:
 
 if __name__ == "__main__":
     scraper = AnthropicScraper()
-    articles: List[AnthropicArticle] = scraper.get_articles(hours=100)
+    articles: List[AnthropicArticle] = scraper.fetch(hours=100)
     markdown: str = scraper.url_to_markdown(articles[1].url)
     print(markdown)

@@ -21,7 +21,12 @@ class ChannelVideo(BaseModel):
     transcript: Optional[str] = None
 
 
-class YouTubeScraper:
+from .base import SourceAdapter
+
+class YouTubeScraper(SourceAdapter):
+    source_name = "YouTube"
+    source_type = "youtube"
+
     def __init__(self):
         proxy_config = None
         proxy_username = os.getenv("PROXY_USERNAME")
@@ -88,6 +93,14 @@ class YouTubeScraper:
             transcript = self.get_transcript(video.video_id)
             result.append(video.model_copy(update={"transcript": transcript.text if transcript else None}))
         return result
+        
+    def fetch(self, hours: int = 24) -> list[ChannelVideo]:
+        from app.config import YOUTUBE_CHANNELS
+        videos = []
+        for channel_id in YOUTUBE_CHANNELS:
+            # Note: We just get the metadata here, process_youtube handles transcripts
+            videos.extend(self.get_latest_videos(channel_id, hours=hours))
+        return videos
     
     
     

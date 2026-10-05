@@ -37,13 +37,11 @@ def run_daily_pipeline(hours: int = 24, top_n: int = 10) -> dict:
         logger.info("\n[1/5] Scraping articles from sources...")
         scraping_results = run_scrapers(hours=hours)
         results["scraping"] = {
-            "youtube": len(scraping_results.get("youtube", [])),
-            "openai": len(scraping_results.get("openai", [])),
-            "anthropic": len(scraping_results.get("anthropic", []))
+            source_name: len(items) for source_name, items in scraping_results.items()
         }
-        logger.info(f"✓ Scraped {results['scraping']['youtube']} YouTube videos, "
-                    f"{results['scraping']['openai']} OpenAI articles, "
-                    f"{results['scraping']['anthropic']} Anthropic articles")
+        
+        counts_str = ", ".join(f"{count} {source}" for source, count in results["scraping"].items())
+        logger.info(f"✓ Scraped: {counts_str}")
         
         logger.info("\n[2/5] Processing Anthropic markdown...")
         anthropic_result = process_anthropic_markdown()
