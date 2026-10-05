@@ -1,10 +1,48 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Float
+from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Float, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
+
+
+class Story(Base):
+    """
+    Represents one underlying news event or topic.
+    Multiple ContentItems from different sources may belong to the same Story.
+    """
+    __tablename__ = "stories"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    title = Column(String, nullable=False)
+    first_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    story_content = relationship("StoryContent", back_populates="story", cascade="all, delete-orphan")
+
+
+class StoryContent(Base):
+    """
+    Association table linking one Story to many ContentItems.
+    One ContentItem may belong to at most one Story (unique constraint on content_item_id).
+    """
+    __tablename__ = "story_content"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    story_id = Column(String, ForeignKey("stories.id"), nullable=False, index=True)
+    content_item_id = Column(String, ForeignKey("content_items.id"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    story = relationship("Story", back_populates="story_content")
+    content_item = relationship("ContentItem", back_populates="story_content")
+
+    __table_args__ = (
+        UniqueConstraint("content_item_id", name="uq_story_content_item"),
+    )
+
 
 
 class Source(Base):
@@ -40,6 +78,7 @@ class ContentItem(Base):
     
     source = relationship("Source", back_populates="content_items")
     digests = relationship("Digest", back_populates="content_item")
+    story_content = relationship("StoryContent", back_populates="content_item", uselist=False)
 
 
 class YouTubeVideo(Base):
