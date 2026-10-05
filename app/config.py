@@ -44,3 +44,9 @@ TREND_STORY_DIVERSITY_WEIGHT = float(os.getenv("TREND_STORY_DIVERSITY_WEIGHT", "
 TREND_SOURCE_DIVERSITY_WEIGHT = float(os.getenv("TREND_SOURCE_DIVERSITY_WEIGHT", "0.15"))
 TREND_RECENCY_WEIGHT = float(os.getenv("TREND_RECENCY_WEIGHT", "0.10"))
 TREND_EMERGING_THRESHOLD = float(os.getenv("TREND_EMERGING_THRESHOLD", "0.55"))
+API_VERSION = os.getenv("API_VERSION", "0.1.0")
+API_CORS_ORIGINS = [
+    value.strip() for value in os.getenv(
+        "API_CORS_ORIGINS", "http://localhost:3000"
+    ).split(",") if value.strip()
+]

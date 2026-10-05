@@ -290,3 +290,29 @@ topic-name tie-breaking and include deterministic explanations whose numbers
 come directly from the computed metrics. Trend detection is distinct from
 Phase 8 personalized ranking: ranking scores relevance for one user, while
 trend detection measures ecosystem activity over time.
+
+### FastAPI intelligence API
+
+Phase 10 exposes the existing services through a thin FastAPI orchestration
+layer. Start it locally with:
+
+```bash
+uvicorn app.api.main:app --reload
+```
+
+Available endpoints:
+
+- `GET /api/health`
+- `GET /api/news?page=1&page_size=20`
+- `GET /api/stories?page=1&page_size=20`
+- `GET /api/search?q=...&top_k=10&min_similarity=0.7`
+- `POST /api/ask` with `{"query": "...", "top_k": 8}`
+- `GET /api/trends?top_k=10&recent_days=7&previous_days=7`
+- `GET /api/personalized?q=...&user_id=default&top_k=10`
+
+Interactive Swagger documentation is available at `/docs`; the generated
+OpenAPI document is available at `/openapi.json` and ReDoc at `/redoc`.
+`API_CORS_ORIGINS` configures allowed browser origins and defaults to local
+Next.js development. Authentication is intentionally not included in Phase
+10. API errors use safe HTTP messages and never expose credentials, SQL,
+filesystem paths, or provider stack traces.

@@ -8,6 +8,7 @@ from .models import (
     ContentEnrichment,
     ContentEmbedding,
     StoryContent,
+    Story,
 )
 from .connection import get_session
 
@@ -75,6 +76,31 @@ class Repository:
 
     def get_content_item_by_external_id(self, external_id: str) -> Optional[ContentItem]:
         return self.session.query(ContentItem).filter_by(external_id=external_id).first()
+
+    def list_content_items(
+        self, page: int = 1, page_size: int = 20,
+        source_name: Optional[str] = None, content_type: Optional[str] = None,
+    ):
+        query = self.session.query(ContentItem).join(Source)
+        if source_name:
+            query = query.filter(Source.name == source_name)
+        if content_type:
+            query = query.filter(ContentItem.content_type == content_type)
+        total = query.count()
+        items = (
+            query.order_by(ContentItem.published_at.desc())
+            .offset((page - 1) * page_size).limit(page_size).all()
+        )
+        return items, total
+
+    def list_stories(self, page: int = 1, page_size: int = 20):
+        query = self.session.query(Story)
+        total = query.count()
+        stories = (
+            query.order_by(Story.last_updated_at.desc())
+            .offset((page - 1) * page_size).limit(page_size).all()
+        )
+        return stories, total
 
     def create_content_enrichment(
         self, content_item_id: str, result: Any, model_name: str, prompt_version: str
