@@ -1,7 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
-from .models import Source, ContentItem, Digest, ContentEnrichment, ContentEmbedding
+from .models import (
+    Source,
+    ContentItem,
+    Digest,
+    ContentEnrichment,
+    ContentEmbedding,
+    StoryContent,
+)
 from .connection import get_session
 
 
@@ -192,14 +199,21 @@ class Repository:
         exclude_content_item_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         distance = ContentEmbedding.embedding.cosine_distance(embedding)
-        query = self.session.query(ContentItem, distance.label("distance")).join(
+        query = self.session.query(
+            ContentItem, StoryContent.story_id, distance.label("distance")
+        ).join(
             ContentEmbedding, ContentEmbedding.content_item_id == ContentItem.id
-        )
+        ).outerjoin(StoryContent, StoryContent.content_item_id == ContentItem.id)
         if exclude_content_item_id:
             query = query.filter(ContentItem.id != exclude_content_item_id)
         return [
-            {"content_item": item, "distance": score}
-            for item, score in query.order_by(distance).limit(limit).all()
+            {
+                "content_item": item,
+                "story_id": story_id,
+                "distance": score,
+                "similarity": 1.0 - float(score),
+            }
+            for item, story_id, score in query.order_by(distance).limit(limit).all()
         ]
         
     # Legacy wrapper methods for backwards compatibility

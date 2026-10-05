@@ -220,3 +220,21 @@ infrastructure. Embedding failures are logged and isolated after the
 ContentItem and enrichment have already been persisted. pgvector must be
 available in PostgreSQL; this phase does not fake vector storage with JSON or
 text.
+
+### Semantic retrieval and grounded RAG
+
+Phase 7 embeds a user query with the same configured embedding provider and
+retrieves ContentItems through PostgreSQL pgvector. Results retain source
+metadata and Story IDs. Story duplicates are removed after database retrieval,
+so database similarity ordering remains authoritative.
+
+RAG context is deterministic and bounded by `RAG_MAX_CONTEXT_ITEMS` and
+`RAG_MAX_CONTEXT_CHARS`. It prefers raw content or transcripts, then
+descriptions, then titles, and never fabricates missing URLs, dates, or text.
+The grounded answer provider receives only retrieved context, returns
+structured answers with source attribution, and must explicitly acknowledge
+insufficient context. `RAG_MODEL` selects the provider model.
+
+Retrieval and answer generation are provider abstractions and are tested with
+mocks; this phase adds no API, frontend, personalization, recommendations, or
+agent workflows.
