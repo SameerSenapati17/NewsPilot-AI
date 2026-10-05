@@ -48,7 +48,8 @@ def process_digests(limit: Optional[int] = None) -> dict:
                     url=article["url"],
                     title=digest_result.title,
                     summary=digest_result.summary,
-                    published_at=article.get("published_at")
+                    published_at=article.get("published_at"),
+                    content_item_id=article.get("content_item_id")
                 )
                 processed += 1
                 logger.info(f"✓ Successfully created digest for {article_type} {article_id}")

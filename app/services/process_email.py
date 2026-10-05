@@ -5,7 +5,7 @@ load_dotenv()
 
 from app.agent.email_agent import EmailAgent, RankedArticleDetail, EmailDigestResponse
 from app.agent.curator_agent import CuratorAgent
-from app.profiles.user_profile import USER_PROFILE
+from app.profiles.user_profile import get_user_profile
 from app.database.repository import Repository
 from app.services.email import send_email, digest_to_html
 
@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 def generate_email_digest(hours: int = 24, top_n: int = 10) -> EmailDigestResponse:
-    curator = CuratorAgent(USER_PROFILE)
-    email_agent = EmailAgent(USER_PROFILE)
+    user_profile = get_user_profile()
+    curator = CuratorAgent(user_profile)
+    email_agent = EmailAgent(user_profile)
     repo = Repository()
     
     digests = repo.get_recent_digests(hours=hours)

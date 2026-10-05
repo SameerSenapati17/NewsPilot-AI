@@ -1,143 +1,140 @@
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
-from .models import YouTubeVideo, OpenAIArticle, AnthropicArticle, Digest
+from .models import Source, ContentItem, Digest
 from .connection import get_session
 
 
 class Repository:
     def __init__(self, session: Optional[Session] = None):
         self.session = session or get_session()
-    
-    def create_youtube_video(self, video_id: str, title: str, url: str, channel_id: str, 
-                            published_at: datetime, description: str = "", transcript: Optional[str] = None) -> Optional[YouTubeVideo]:
-        existing = self.session.query(YouTubeVideo).filter_by(video_id=video_id).first()
+        
+    def _get_or_create_source(self, name: str, source_type: str) -> Source:
+        source = self.session.query(Source).filter_by(name=name, source_type=source_type).first()
+        if not source:
+            source = Source(name=name, source_type=source_type)
+            self.session.add(source)
+            self.session.flush()
+        return source
+
+    def create_content_item(self, source_name: str, source_type: str, external_id: str, 
+                            content_type: str, title: str, url: str, published_at: datetime, 
+                            description: str = "", raw_content: Optional[str] = None, 
+                            transcript: Optional[str] = None) -> Optional[ContentItem]:
+        existing = self.session.query(ContentItem).filter_by(external_id=external_id).first()
         if existing:
             return None
-        video = YouTubeVideo(
-            video_id=video_id,
+            
+        source = self._get_or_create_source(source_name, source_type)
+        
+        item = ContentItem(
+            source_id=source.id,
+            external_id=external_id,
+            content_type=content_type,
             title=title,
             url=url,
-            channel_id=channel_id,
             published_at=published_at,
             description=description,
+            raw_content=raw_content,
             transcript=transcript
         )
-        self.session.add(video)
+        self.session.add(item)
         self.session.commit()
-        return video
-    
-    def create_openai_article(self, guid: str, title: str, url: str, published_at: datetime,
-                              description: str = "", category: Optional[str] = None) -> Optional[OpenAIArticle]:
-        existing = self.session.query(OpenAIArticle).filter_by(guid=guid).first()
-        if existing:
-            return None
-        article = OpenAIArticle(
-            guid=guid,
-            title=title,
-            url=url,
-            published_at=published_at,
-            description=description,
-            category=category
-        )
-        self.session.add(article)
-        self.session.commit()
-        return article
-    
-    def create_anthropic_article(self, guid: str, title: str, url: str, published_at: datetime,
-                                description: str = "", category: Optional[str] = None) -> Optional[AnthropicArticle]:
-        existing = self.session.query(AnthropicArticle).filter_by(guid=guid).first()
-        if existing:
-            return None
-        article = AnthropicArticle(
-            guid=guid,
-            title=title,
-            url=url,
-            published_at=published_at,
-            description=description,
-            category=category
-        )
-        self.session.add(article)
-        self.session.commit()
-        return article
-    
-    def bulk_create_youtube_videos(self, videos: List[dict]) -> int:
-        new_videos = []
-        for v in videos:
-            existing = self.session.query(YouTubeVideo).filter_by(video_id=v["video_id"]).first()
+        return item
+        
+    def bulk_create_content_items(self, source_name: str, source_type: str, items: List[dict]) -> int:
+        source = self._get_or_create_source(source_name, source_type)
+        
+        new_items = []
+        for i in items:
+            existing = self.session.query(ContentItem).filter_by(external_id=i["external_id"]).first()
             if not existing:
-                new_videos.append(YouTubeVideo(
-                    video_id=v["video_id"],
-                    title=v["title"],
-                    url=v["url"],
-                    channel_id=v.get("channel_id", ""),
-                    published_at=v["published_at"],
-                    description=v.get("description", ""),
-                    transcript=v.get("transcript")
+                new_items.append(ContentItem(
+                    source_id=source.id,
+                    external_id=i["external_id"],
+                    content_type=i.get("content_type", "article"),
+                    title=i["title"],
+                    url=i["url"],
+                    published_at=i["published_at"],
+                    description=i.get("description", ""),
+                    raw_content=i.get("raw_content"),
+                    transcript=i.get("transcript")
                 ))
-        if new_videos:
-            self.session.add_all(new_videos)
+                
+        if new_items:
+            self.session.add_all(new_items)
             self.session.commit()
-        return len(new_videos)
+        return len(new_items)
+        
+    # Legacy wrapper methods for backwards compatibility
+    def bulk_create_youtube_videos(self, videos: List[dict]) -> int:
+        items = []
+        for v in videos:
+            items.append({
+                "external_id": v["video_id"],
+                "content_type": "video",
+                "title": v["title"],
+                "url": v["url"],
+                "published_at": v["published_at"],
+                "description": v.get("description", ""),
+                "transcript": v.get("transcript")
+            })
+        return self.bulk_create_content_items("YouTube", "youtube", items)
     
     def bulk_create_openai_articles(self, articles: List[dict]) -> int:
-        new_articles = []
+        items = []
         for a in articles:
-            existing = self.session.query(OpenAIArticle).filter_by(guid=a["guid"]).first()
-            if not existing:
-                new_articles.append(OpenAIArticle(
-                    guid=a["guid"],
-                    title=a["title"],
-                    url=a["url"],
-                    published_at=a["published_at"],
-                    description=a.get("description", ""),
-                    category=a.get("category")
-                ))
-        if new_articles:
-            self.session.add_all(new_articles)
-            self.session.commit()
-        return len(new_articles)
+            items.append({
+                "external_id": a["guid"],
+                "content_type": "article",
+                "title": a["title"],
+                "url": a["url"],
+                "published_at": a["published_at"],
+                "description": a.get("description", "")
+            })
+        return self.bulk_create_content_items("OpenAI RSS", "rss", items)
     
     def bulk_create_anthropic_articles(self, articles: List[dict]) -> int:
-        new_articles = []
+        items = []
         for a in articles:
-            existing = self.session.query(AnthropicArticle).filter_by(guid=a["guid"]).first()
-            if not existing:
-                new_articles.append(AnthropicArticle(
-                    guid=a["guid"],
-                    title=a["title"],
-                    url=a["url"],
-                    published_at=a["published_at"],
-                    description=a.get("description", ""),
-                    category=a.get("category")
-                ))
-        if new_articles:
-            self.session.add_all(new_articles)
-            self.session.commit()
-        return len(new_articles)
+            items.append({
+                "external_id": a["guid"],
+                "content_type": "article",
+                "title": a["title"],
+                "url": a["url"],
+                "published_at": a["published_at"],
+                "description": a.get("description", "")
+            })
+        return self.bulk_create_content_items("Anthropic RSS", "rss", items)
     
-    def get_anthropic_articles_without_markdown(self, limit: Optional[int] = None) -> List[AnthropicArticle]:
-        query = self.session.query(AnthropicArticle).filter(AnthropicArticle.markdown.is_(None))
+    def get_anthropic_articles_without_markdown(self, limit: Optional[int] = None) -> List[ContentItem]:
+        query = self.session.query(ContentItem).join(Source).filter(
+            Source.name == "Anthropic RSS",
+            ContentItem.raw_content.is_(None)
+        )
         if limit:
             query = query.limit(limit)
         return query.all()
     
     def update_anthropic_article_markdown(self, guid: str, markdown: str) -> bool:
-        article = self.session.query(AnthropicArticle).filter_by(guid=guid).first()
+        article = self.session.query(ContentItem).filter_by(external_id=guid).first()
         if article:
-            article.markdown = markdown
+            article.raw_content = markdown
             self.session.commit()
             return True
         return False
     
-    def get_youtube_videos_without_transcript(self, limit: Optional[int] = None) -> List[YouTubeVideo]:
-        query = self.session.query(YouTubeVideo).filter(YouTubeVideo.transcript.is_(None))
+    def get_youtube_videos_without_transcript(self, limit: Optional[int] = None) -> List[ContentItem]:
+        query = self.session.query(ContentItem).join(Source).filter(
+            Source.name == "YouTube",
+            ContentItem.transcript.is_(None)
+        )
         if limit:
             query = query.limit(limit)
         return query.all()
     
     def update_youtube_video_transcript(self, video_id: str, transcript: str) -> bool:
-        video = self.session.query(YouTubeVideo).filter_by(video_id=video_id).first()
+        video = self.session.query(ContentItem).filter_by(external_id=video_id).first()
         if video:
             video.transcript = transcript
             self.session.commit()
@@ -150,62 +147,56 @@ class Repository:
         
         digests = self.session.query(Digest).all()
         for d in digests:
-            seen_ids.add(f"{d.article_type}:{d.article_id}")
+            if d.content_item_id:
+                seen_ids.add(d.content_item_id)
+            elif d.article_id:
+                seen_ids.add(d.article_id) # fallback for old unmigrated data
         
-        youtube_videos = self.session.query(YouTubeVideo).filter(
-            YouTubeVideo.transcript.isnot(None),
-            YouTubeVideo.transcript != "__UNAVAILABLE__"
-        ).all()
-        for video in youtube_videos:
-            key = f"youtube:{video.video_id}"
-            if key not in seen_ids:
-                articles.append({
-                    "type": "youtube",
-                    "id": video.video_id,
-                    "title": video.title,
-                    "url": video.url,
-                    "content": video.transcript or video.description or "",
-                    "published_at": video.published_at
-                })
+        # Get all content items that don't have a digest
+        query = self.session.query(ContentItem).filter(
+            ContentItem.id.notin_(list(seen_ids)),
+            ContentItem.external_id.notin_(list(seen_ids))
+        )
         
-        openai_articles = self.session.query(OpenAIArticle).all()
-        for article in openai_articles:
-            key = f"openai:{article.guid}"
-            if key not in seen_ids:
-                articles.append({
-                    "type": "openai",
-                    "id": article.guid,
-                    "title": article.title,
-                    "url": article.url,
-                    "content": article.description or "",
-                    "published_at": article.published_at
-                })
+        # Filter for items that are ready for digest (have transcript or markdown, or don't need it)
+        all_items = query.all()
         
-        anthropic_articles = self.session.query(AnthropicArticle).filter(
-            AnthropicArticle.markdown.isnot(None)
-        ).all()
-        for article in anthropic_articles:
-            key = f"anthropic:{article.guid}"
-            if key not in seen_ids:
-                articles.append({
-                    "type": "anthropic",
-                    "id": article.guid,
-                    "title": article.title,
-                    "url": article.url,
-                    "content": article.markdown or article.description or "",
-                    "published_at": article.published_at
-                })
-        
+        for item in all_items:
+            # Skip youtube videos without transcripts
+            if item.source.name == "YouTube" and (not item.transcript or item.transcript == "__UNAVAILABLE__"):
+                continue
+            # Skip anthropic articles without markdown
+            if item.source.name == "Anthropic RSS" and not item.raw_content:
+                continue
+                
+            content = item.transcript or item.raw_content or item.description or ""
+            
+            articles.append({
+                "type": item.source.name.lower().split(" ")[0], # e.g. 'youtube', 'openai', 'anthropic'
+                "id": item.external_id,
+                "content_item_id": item.id,
+                "title": item.title,
+                "url": item.url,
+                "content": content,
+                "published_at": item.published_at
+            })
+            
         if limit:
             articles = articles[:limit]
-        
+            
         return articles
     
-    def create_digest(self, article_type: str, article_id: str, url: str, title: str, summary: str, published_at: Optional[datetime] = None) -> Optional[Digest]:
+    def create_digest(self, article_type: str, article_id: str, url: str, title: str, summary: str, published_at: Optional[datetime] = None, content_item_id: Optional[str] = None) -> Optional[Digest]:
         digest_id = f"{article_type}:{article_id}"
         existing = self.session.query(Digest).filter_by(id=digest_id).first()
         if existing:
             return None
+            
+        if not content_item_id:
+            # Try to lookup content item
+            item = self.session.query(ContentItem).filter_by(external_id=article_id).first()
+            if item:
+                content_item_id = item.id
         
         if published_at:
             if published_at.tzinfo is None:
@@ -216,6 +207,7 @@ class Repository:
         
         digest = Digest(
             id=digest_id,
+            content_item_id=content_item_id,
             article_type=article_type,
             article_id=article_id,
             url=url,
@@ -238,6 +230,7 @@ class Repository:
                 "id": d.id,
                 "article_type": d.article_type,
                 "article_id": d.article_id,
+                "content_item_id": d.content_item_id,
                 "url": d.url,
                 "title": d.title,
                 "summary": d.summary,

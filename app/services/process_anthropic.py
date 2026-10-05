@@ -22,13 +22,13 @@ def process_anthropic_markdown(limit: Optional[int] = None) -> dict:
         markdown = scraper.url_to_markdown(article.url)
         try:
             if markdown:
-                repo.update_anthropic_article_markdown(article.guid, markdown)
+                repo.update_anthropic_article_markdown(article.external_id, markdown)
                 processed += 1
             else:
                 failed += 1
         except Exception as e:
             failed += 1
-            print(f"Error processing article {article.guid}: {e}")
+            print(f"Error processing article {article.external_id}: {e}")
             continue
     
     return {

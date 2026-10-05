@@ -24,3 +24,10 @@ USER_PROFILE = {
     "expertise_level": "Advanced"
 }
 
+def get_user_profile(user_id: str = "default") -> dict:
+    """
+    Get the user profile. Currently returns a hardcoded profile.
+    Future: Fetch from the database based on user_id.
+    """
+    return USER_PROFILE
+
