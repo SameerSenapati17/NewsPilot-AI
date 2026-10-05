@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
-from .models import Source, ContentItem, Digest
+from .models import Source, ContentItem, Digest, ContentEnrichment
 from .connection import get_session
 
 
@@ -65,6 +65,69 @@ class Repository:
             self.session.add_all(new_items)
             self.session.commit()
         return len(new_items)
+
+    def get_content_item_by_external_id(self, external_id: str) -> Optional[ContentItem]:
+        return self.session.query(ContentItem).filter_by(external_id=external_id).first()
+
+    def create_content_enrichment(
+        self, content_item_id: str, result: Any, model_name: str, prompt_version: str
+    ) -> Optional[ContentEnrichment]:
+        if self.get_content_enrichment(content_item_id) is not None:
+            return None
+        if self.session.query(ContentItem).filter_by(id=content_item_id).first() is None:
+            return None
+        enrichment = ContentEnrichment(
+            content_item_id=content_item_id,
+            category=result.category.value if hasattr(result.category, "value") else result.category,
+            topics=list(result.topics),
+            entities=list(result.entities),
+            importance=result.importance,
+            novelty=result.novelty,
+            technical_depth=result.technical_depth,
+            impact=result.impact,
+            source_quality=result.source_quality,
+            model_name=model_name,
+            prompt_version=prompt_version,
+        )
+        self.session.add(enrichment)
+        self.session.commit()
+        return enrichment
+
+    def get_content_enrichment(self, content_item_id: str) -> Optional[ContentEnrichment]:
+        return self.session.query(ContentEnrichment).filter_by(
+            content_item_id=content_item_id
+        ).first()
+
+    def upsert_content_enrichment(
+        self, content_item_id: str, result: Any, model_name: str, prompt_version: str
+    ) -> Optional[ContentEnrichment]:
+        enrichment = self.get_content_enrichment(content_item_id)
+        if enrichment is None:
+            return self.create_content_enrichment(
+                content_item_id, result, model_name, prompt_version
+            )
+        enrichment.category = (
+            result.category.value if hasattr(result.category, "value") else result.category
+        )
+        enrichment.topics = list(result.topics)
+        enrichment.entities = list(result.entities)
+        enrichment.importance = result.importance
+        enrichment.novelty = result.novelty
+        enrichment.technical_depth = result.technical_depth
+        enrichment.impact = result.impact
+        enrichment.source_quality = result.source_quality
+        enrichment.model_name = model_name
+        enrichment.prompt_version = prompt_version
+        self.session.commit()
+        return enrichment
+
+    def delete_content_enrichment(self, content_item_id: str) -> bool:
+        enrichment = self.get_content_enrichment(content_item_id)
+        if enrichment is None:
+            return False
+        self.session.delete(enrichment)
+        self.session.commit()
+        return True
         
     # Legacy wrapper methods for backwards compatibility
     def bulk_create_youtube_videos(self, videos: List[dict]) -> int:
@@ -238,4 +301,3 @@ class Repository:
             }
             for d in digests
         ]
-

@@ -12,7 +12,7 @@ Source Adapters (scrapers/)
         ↓
   Normalization Layer (normalizer.py)
         ↓
-  ContentItem → PostgreSQL (repository.py)
+  ContentItem → AI enrichment → PostgreSQL (repository.py)
         ↓
   Enrichment (process_anthropic, process_youtube)
         ↓
@@ -146,6 +146,7 @@ app/
 ├── profiles/
 │   └── user_profile.py       # User interest profile
 ├── normalizer.py             # Source-agnostic ContentItem dict conversion
+├── enrichment.py             # Structured AI enrichment provider and schema
 ├── runner.py                 # Ingestion loop with failure isolation
 ├── daily_runner.py           # Full pipeline orchestration
 └── config.py                 # Static config (YouTube channel IDs)
@@ -178,4 +179,15 @@ Digest
   id, content_item_id, article_type, article_id, url, title, summary, created_at
 ```
 
-> **Note:** `ContentItem` represents one piece of source content (a video, article, or paper). Multiple ContentItems may later be grouped into a `Story` (Phase 4+).
+`ContentItem` represents one piece of source content (a video, article, or paper).
+Phase 5 adds one `ContentEnrichment` record per ContentItem. It contains a
+controlled category, JSON topic/entity lists, and model-generated scores from
+0 to 1 for importance, novelty, technical depth, impact, and source quality.
+These scores are heuristics, not ground-truth measurements.
+
+The enrichment provider is isolated behind `EnrichmentProvider`, with the
+existing OpenAI structured-output client used by the default implementation.
+Input is metadata-first and capped at `ENRICHMENT_MAX_CONTENT_CHARS` (12,000
+characters by default), with deterministic body truncation. Provider failures
+are logged without deleting the ContentItem, and existing enrichment records
+are skipped so ingestion is idempotent.

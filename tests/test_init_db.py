@@ -29,7 +29,8 @@ class TestInitDB(unittest.TestCase):
         # Check for both new and legacy tables
         expected_tables = {
             'sources', 'content_items', 'digests', 
-            'youtube_videos', 'openai_articles', 'anthropic_articles'
+            'youtube_videos', 'openai_articles', 'anthropic_articles',
+            'content_enrichments'
         }
         self.assertTrue(expected_tables.issubset(set(tables)))
 

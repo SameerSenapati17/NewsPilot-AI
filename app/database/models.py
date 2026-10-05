@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Float, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Float, UniqueConstraint, Index, JSON
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -79,6 +79,36 @@ class ContentItem(Base):
     source = relationship("Source", back_populates="content_items")
     digests = relationship("Digest", back_populates="content_item")
     story_content = relationship("StoryContent", back_populates="content_item", uselist=False)
+    enrichment = relationship(
+        "ContentEnrichment", back_populates="content_item", uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+
+class ContentEnrichment(Base):
+    __tablename__ = "content_enrichments"
+    __table_args__ = (Index("ix_content_enrichments_category", "category"),)
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    content_item_id = Column(
+        String, ForeignKey("content_items.id"), nullable=False, unique=True, index=True
+    )
+    category = Column(String, nullable=False)
+    topics = Column(JSON, nullable=False, default=list)
+    entities = Column(JSON, nullable=False, default=list)
+    importance = Column(Float, nullable=False)
+    novelty = Column(Float, nullable=False)
+    technical_depth = Column(Float, nullable=False)
+    impact = Column(Float, nullable=False)
+    source_quality = Column(Float, nullable=False)
+    model_name = Column(String, nullable=False)
+    prompt_version = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    content_item = relationship("ContentItem", back_populates="enrichment")
 
 
 class YouTubeVideo(Base):
@@ -132,4 +162,3 @@ class Digest(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     content_item = relationship("ContentItem", back_populates="digests")
-
