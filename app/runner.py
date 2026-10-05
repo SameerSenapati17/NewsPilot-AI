@@ -4,6 +4,12 @@ from .database.repository import Repository
 from .normalizer import normalize
 from .scrapers.base import registry
 from .enrichment import EnrichmentProvider, OpenAIEnrichmentProvider
+from .embeddings import (
+    EmbeddingProvider,
+    OpenAIEmbeddingProvider,
+    embedding_text_hash,
+    prepare_embedding_text,
+)
 from . import scrapers as _scrapers_pkg  # noqa: F401 — side-effect import to populate registry
 
 logger = logging.getLogger(__name__)
@@ -23,6 +29,24 @@ def enrich_content_item(repo: Repository, content_item, provider: EnrichmentProv
         return False
 
 
+def embed_content_item(repo: Repository, content_item, provider: EmbeddingProvider) -> bool:
+    text_hash = embedding_text_hash(prepare_embedding_text(content_item))
+    existing = repo.get_content_embedding(content_item.id)
+    if existing is not None and existing.text_hash == text_hash:
+        return False
+    try:
+        result = provider.embed_batch([prepare_embedding_text(content_item)])[0]
+        repo.upsert_content_embedding(
+            content_item.id,
+            result.embedding,
+            provider.model_name,
+            result.dimensions,
+            text_hash,
+        )
+        return True
+    except Exception as exc:
+        logger.error("[EMBEDDING ERROR] %s: %s", content_item.external_id, exc, exc_info=True)
+        return False
 def run_scrapers(
     hours: int = 24, enrichment_provider: Optional[EnrichmentProvider] = None
 ) -> dict:
@@ -34,6 +58,11 @@ def run_scrapers(
         except Exception as exc:
             logger.warning("AI enrichment disabled: provider initialization failed: %s", exc)
             enrichment_provider = None
+    try:
+        embedding_provider = OpenAIEmbeddingProvider()
+    except Exception as exc:
+        logger.warning("Embeddings disabled: provider initialization failed: %s", exc)
+        embedding_provider = None
 
     adapters = registry.get_all()
 
@@ -56,11 +85,13 @@ def run_scrapers(
                     if repo.get_content_item_by_external_id(item["external_id"]) is None
                 ]
                 repo.bulk_create_content_items(source_name, source_type, normalized_items)
-                if enrichment_provider is not None:
-                    for external_id in new_external_ids:
-                        content_item = repo.get_content_item_by_external_id(external_id)
-                        if content_item is not None:
+                for external_id in new_external_ids:
+                    content_item = repo.get_content_item_by_external_id(external_id)
+                    if content_item is not None:
+                        if enrichment_provider is not None:
                             enrich_content_item(repo, content_item, enrichment_provider)
+                        if embedding_provider is not None:
+                            embed_content_item(repo, content_item, embedding_provider)
 
             key = source_name.lower().replace(" ", "_").replace("/", "_")
             results[key] = items

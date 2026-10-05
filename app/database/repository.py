@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
-from .models import Source, ContentItem, Digest, ContentEnrichment
+from .models import Source, ContentItem, Digest, ContentEnrichment, ContentEmbedding
 from .connection import get_session
 
 
@@ -128,6 +128,79 @@ class Repository:
         self.session.delete(enrichment)
         self.session.commit()
         return True
+
+    def get_content_embedding(self, content_item_id: str) -> Optional[ContentEmbedding]:
+        return self.session.query(ContentEmbedding).filter_by(
+            content_item_id=content_item_id
+        ).first()
+
+    def get_embedding_by_content_item(
+        self, content_item_id: str
+    ) -> Optional[ContentEmbedding]:
+        return self.get_content_embedding(content_item_id)
+
+    def create_content_embedding(
+        self,
+        content_item_id: str,
+        embedding: List[float],
+        embedding_model: str,
+        dimensions: int,
+        text_hash: str,
+    ) -> Optional[ContentEmbedding]:
+        if self.get_content_embedding(content_item_id) is not None:
+            return None
+        if self.session.query(ContentItem).filter_by(id=content_item_id).first() is None:
+            return None
+        record = ContentEmbedding(
+            content_item_id=content_item_id,
+            embedding=embedding,
+            embedding_model=embedding_model,
+            dimensions=dimensions,
+            text_hash=text_hash,
+        )
+        self.session.add(record)
+        self.session.commit()
+        return record
+
+    def upsert_content_embedding(
+        self,
+        content_item_id: str,
+        embedding: List[float],
+        embedding_model: str,
+        dimensions: int,
+        text_hash: str,
+    ) -> ContentEmbedding:
+        record = self.get_content_embedding(content_item_id)
+        if record is None:
+            record = self.create_content_embedding(
+                content_item_id, embedding, embedding_model, dimensions, text_hash
+            )
+            if record is None:
+                raise RuntimeError("Could not create ContentEmbedding")
+            return record
+        record.embedding = embedding
+        record.embedding_model = embedding_model
+        record.dimensions = dimensions
+        record.text_hash = text_hash
+        self.session.commit()
+        return record
+
+    def find_similar_content(
+        self,
+        embedding: List[float],
+        limit: int = 10,
+        exclude_content_item_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        distance = ContentEmbedding.embedding.cosine_distance(embedding)
+        query = self.session.query(ContentItem, distance.label("distance")).join(
+            ContentEmbedding, ContentEmbedding.content_item_id == ContentItem.id
+        )
+        if exclude_content_item_id:
+            query = query.filter(ContentItem.id != exclude_content_item_id)
+        return [
+            {"content_item": item, "distance": score}
+            for item, score in query.order_by(distance).limit(limit).all()
+        ]
         
     # Legacy wrapper methods for backwards compatibility
     def bulk_create_youtube_videos(self, videos: List[dict]) -> int:

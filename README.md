@@ -12,7 +12,7 @@ Source Adapters (scrapers/)
         ↓
   Normalization Layer (normalizer.py)
         ↓
-  ContentItem → AI enrichment → PostgreSQL (repository.py)
+  ContentItem → AI enrichment → semantic embeddings → PostgreSQL (repository.py)
         ↓
   Enrichment (process_anthropic, process_youtube)
         ↓
@@ -147,6 +147,7 @@ app/
 │   └── user_profile.py       # User interest profile
 ├── normalizer.py             # Source-agnostic ContentItem dict conversion
 ├── enrichment.py             # Structured AI enrichment provider and schema
+├── embeddings.py             # pgvector embedding provider and text hashing
 ├── runner.py                 # Ingestion loop with failure isolation
 ├── daily_runner.py           # Full pipeline orchestration
 └── config.py                 # Static config (YouTube channel IDs)
@@ -160,6 +161,7 @@ tests/
 ├── test_repository.py       # Repository + SQLite unit tests
 ├── test_normalizer.py       # Phase 2 normalization tests
 ├── test_scrapers_phase3.py  # Phase 3 scrapers + registry tests
+├── test_embeddings.py       # Phase 6 embedding tests
 └── test_init_db.py          # DB initialization test
 ```
 
@@ -177,6 +179,14 @@ ContentItem
     ↓ (1-to-many)
 Digest
   id, content_item_id, article_type, article_id, url, title, summary, created_at
+    ↓ (one-to-one)
+ContentEnrichment
+  id, content_item_id, category, topics, entities, scores, model_name,
+  prompt_version, created_at, updated_at
+    ↓ (one-to-one)
+ContentEmbedding
+  id, content_item_id, embedding, embedding_model, dimensions, text_hash,
+  created_at, updated_at
 ```
 
 `ContentItem` represents one piece of source content (a video, article, or paper).
@@ -191,3 +201,22 @@ Input is metadata-first and capped at `ENRICHMENT_MAX_CONTENT_CHARS` (12,000
 characters by default), with deterministic body truncation. Provider failures
 are logged without deleting the ContentItem, and existing enrichment records
 are skipped so ingestion is idempotent.
+
+### Semantic embeddings
+
+Phase 6 stores one numerical semantic representation per `ContentItem` in the
+PostgreSQL `vector` type supplied by `pgvector`. The default provider uses
+OpenAI `text-embedding-3-small` with 1,536 dimensions; model, dimensions,
+batch size, and the 12,000-character deterministic input limit are configurable
+through environment variables. Input contains stable title, source, content
+type, and body fields and does not include timestamps, summaries, or user data.
+
+The SHA-256 hash of that prepared input is stored in `text_hash`; unchanged
+content skips the provider, while changed content is regenerated. Similarity
+search uses pgvector cosine distance and performs ordering in PostgreSQL rather
+than loading vectors into Python. The current dataset does not justify an ANN
+index, so the schema is ready for one later without adding unnecessary
+infrastructure. Embedding failures are logged and isolated after the
+ContentItem and enrichment have already been persisted. pgvector must be
+available in PostgreSQL; this phase does not fake vector storage with JSON or
+text.

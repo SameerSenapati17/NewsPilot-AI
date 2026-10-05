@@ -1,8 +1,10 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Float, UniqueConstraint, Index, JSON
+from sqlalchemy import Column, String, DateTime, Text, Boolean, ForeignKey, Float, UniqueConstraint, Index, JSON, Integer
 from sqlalchemy.orm import declarative_base, relationship
+from pgvector.sqlalchemy import Vector
+from app.config import EMBEDDING_DIMENSIONS
 
 Base = declarative_base()
 
@@ -83,6 +85,10 @@ class ContentItem(Base):
         "ContentEnrichment", back_populates="content_item", uselist=False,
         cascade="all, delete-orphan",
     )
+    embedding = relationship(
+        "ContentEmbedding", back_populates="content_item", uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class ContentEnrichment(Base):
@@ -109,6 +115,26 @@ class ContentEnrichment(Base):
     )
 
     content_item = relationship("ContentItem", back_populates="enrichment")
+
+
+class ContentEmbedding(Base):
+    __tablename__ = "content_embeddings"
+    __table_args__ = (Index("ix_content_embeddings_model", "embedding_model"),)
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    content_item_id = Column(
+        String, ForeignKey("content_items.id"), nullable=False, unique=True, index=True
+    )
+    embedding = Column(Vector(EMBEDDING_DIMENSIONS), nullable=False)
+    embedding_model = Column(String, nullable=False)
+    dimensions = Column(Integer, nullable=False)
+    text_hash = Column(String(64), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    content_item = relationship("ContentItem", back_populates="embedding")
 
 
 class YouTubeVideo(Base):

@@ -30,7 +30,7 @@ class TestInitDB(unittest.TestCase):
         expected_tables = {
             'sources', 'content_items', 'digests', 
             'youtube_videos', 'openai_articles', 'anthropic_articles',
-            'content_enrichments'
+            'content_enrichments', 'content_embeddings', 'content_embeddings'
         }
         self.assertTrue(expected_tables.issubset(set(tables)))
 
