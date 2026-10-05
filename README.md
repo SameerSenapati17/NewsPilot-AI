@@ -236,5 +236,33 @@ structured answers with source attribution, and must explicitly acknowledge
 insufficient context. `RAG_MODEL` selects the provider model.
 
 Retrieval and answer generation are provider abstractions and are tested with
-mocks; this phase adds no API, frontend, personalization, recommendations, or
+mocks; Phase 7 adds no API, frontend, personalization, recommendations, or
 agent workflows.
+
+### Personalized ranking
+
+Phase 8 is a separate deterministic layer after semantic retrieval. It accepts
+a typed `UserProfile` containing preferred and excluded topics/entities and
+optional content-type preferences. It combines the retrieval similarity with
+case-insensitive topic/entity matches, freshness, and configurable source
+quality:
+
+```
+semantic * weight
++ topic * weight
++ entity * weight
++ freshness * weight
++ source_quality * weight
+- exclusion_penalty
+```
+
+Freshness uses an explainable exponential half-life decay. Missing publication
+dates score zero and future dates are treated as current. Source quality is
+provided by candidate metadata or the JSON `RANKING_SOURCE_QUALITY`
+configuration mapping, with unknown sources receiving a safe default.
+
+Ranking emits structured explanations containing matched topics/entities,
+normalized signal values, exclusions, final score, and deterministic reasons.
+Results are deduplicated by Story after scoring, retaining the strongest
+representative. Ranking does not call an LLM, recompute embeddings, or make
+external API calls.
