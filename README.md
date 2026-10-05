@@ -266,3 +266,27 @@ normalized signal values, exclusions, final score, and deterministic reasons.
 Results are deduplicated by Story after scoring, retaining the strongest
 representative. Ranking does not call an LLM, recompute embeddings, or make
 external API calls.
+
+### Trend detection
+
+Phase 9 computes ecosystem trends from existing `ContentItem`,
+`ContentEnrichment`, `Source`, and `StoryContent` data. It does not create
+trend tables and does not call an LLM. Enriched topics are normalized
+case-insensitively and aggregated over a recent window and the immediately
+preceding comparison window. The defaults are two seven-day windows and can
+be overridden through `TREND_RECENT_DAYS` and `TREND_PREVIOUS_DAYS`.
+
+Trend metrics include recent and previous content counts, distinct Story and
+source counts, bounded growth/velocity, source and Story diversity, and a
+recency component. Growth from zero previous activity is represented as a
+bounded score of `1.0` when recent activity exists, rather than infinity.
+Recent activity and Story-count minimums prevent tiny samples from being
+marked emerging. An emerging trend must meet those minimums, have positive
+growth, and meet `TREND_EMERGING_THRESHOLD`.
+
+Scores combine configurable growth, activity, Story diversity, source
+diversity, and recency weights. Results are ordered by score with normalized
+topic-name tie-breaking and include deterministic explanations whose numbers
+come directly from the computed metrics. Trend detection is distinct from
+Phase 8 personalized ranking: ranking scores relevance for one user, while
+trend detection measures ecosystem activity over time.

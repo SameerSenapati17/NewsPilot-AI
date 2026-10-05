@@ -215,6 +215,38 @@ class Repository:
             }
             for item, story_id, score in query.order_by(distance).limit(limit).all()
         ]
+
+    def get_trend_records(self, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+        """Return only fields needed by deterministic trend analysis."""
+        rows = (
+            self.session.query(
+                ContentItem.id,
+                ContentItem.published_at,
+                ContentEnrichment.topics,
+                ContentItem.source_id,
+                Source.name,
+                StoryContent.story_id,
+            )
+            .join(ContentEnrichment, ContentEnrichment.content_item_id == ContentItem.id)
+            .join(Source, Source.id == ContentItem.source_id)
+            .outerjoin(StoryContent, StoryContent.content_item_id == ContentItem.id)
+            .filter(
+                ContentItem.published_at >= start_time,
+                ContentItem.published_at < end_time,
+            )
+            .all()
+        )
+        return [
+            {
+                "content_item_id": item_id,
+                "published_at": published_at,
+                "topics": topics or [],
+                "source_id": source_id,
+                "source_name": source_name,
+                "story_id": story_id,
+            }
+            for item_id, published_at, topics, source_id, source_name, story_id in rows
+        ]
         
     # Legacy wrapper methods for backwards compatibility
     def bulk_create_youtube_videos(self, videos: List[dict]) -> int:
