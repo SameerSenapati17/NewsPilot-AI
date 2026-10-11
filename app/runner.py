@@ -119,19 +119,40 @@ def _run_ingestion(
                 items = adapter.fetch(hours=hours)
                 stats.items_fetched += len(items)
                 normalized_items = [normalize(item) for item in items]
+                unique_items = []
+                seen_external_ids = set()
+                for item in normalized_items:
+                    external_id = item["external_id"]
+                    if external_id in seen_external_ids:
+                        continue
+                    seen_external_ids.add(external_id)
+                    unique_items.append(item)
 
-                if normalized_items:
-                    new_external_ids = [
+                if unique_items:
+                    new_external_ids = {
                         item["external_id"]
-                        for item in normalized_items
+                        for item in unique_items
                         if repo.get_content_item_by_external_id(item["external_id"]) is None
-                    ]
-                    stats.new_items += len(new_external_ids)
-                    stats.duplicates_skipped += len(normalized_items) - len(new_external_ids)
-                    repo.bulk_create_content_items(source_name, source_type, normalized_items)
-                    for external_id in new_external_ids:
+                    }
+                    inserted_count = repo.bulk_create_content_items(
+                        source_name, source_type, unique_items
+                    )
+                    stats.new_items += inserted_count
+                    stats.duplicates_skipped += len(normalized_items) - inserted_count
+                    insertion_results_are_complete = (
+                        inserted_count == len(new_external_ids)
+                        and all(
+                            repo.get_content_item_by_external_id(external_id) is not None
+                            for external_id in new_external_ids
+                        )
+                    )
+                    for item in unique_items:
+                        external_id = item["external_id"]
                         content_item = repo.get_content_item_by_external_id(external_id)
-                        if content_item is not None:
+                        if content_item is not None and (
+                            external_id in new_external_ids
+                            or content_item.story_content is None
+                        ):
                             try:
                                 cluster_content_item(repo, content_item)
                             except Exception as exc:
@@ -141,9 +162,19 @@ def _run_ingestion(
                                     exc,
                                     exc_info=True,
                                 )
-                            if process_ai and enrichment_provider is not None:
+                            if (
+                                insertion_results_are_complete
+                                and external_id in new_external_ids
+                                and process_ai
+                                and enrichment_provider is not None
+                            ):
                                 enrich_content_item(repo, content_item, enrichment_provider)
-                            if process_ai and embedding_provider is not None:
+                            if (
+                                insertion_results_are_complete
+                                and external_id in new_external_ids
+                                and process_ai
+                                and embedding_provider is not None
+                            ):
                                 embed_content_item(repo, content_item, embedding_provider)
 
                 key = source_name.lower().replace(" ", "_").replace("/", "_")

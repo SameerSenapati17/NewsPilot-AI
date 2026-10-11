@@ -7,7 +7,8 @@ import threading
 from typing import Callable, Optional
 
 from .config import NEWS_INGESTION_INTERVAL_MINUTES
-from .runner import IngestionRunStats, run_ingestion
+from .runner import IngestionRunStats
+from .automated_pipeline import run_automated_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class IngestionScheduler:
     def __init__(
         self,
         interval_minutes: Optional[int] = None,
-        run_once: Callable[[], IngestionRunStats] = run_ingestion,
+        run_once: Callable[[], IngestionRunStats] = run_automated_pipeline,
     ):
         self.interval_minutes = get_ingestion_interval_minutes(interval_minutes)
         self._run_once_callable = run_once

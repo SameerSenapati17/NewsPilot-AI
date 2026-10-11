@@ -91,6 +91,7 @@ class TestIngestionScheduler(unittest.TestCase):
         repo = Mock()
         repo.session = Mock()
         repo.get_content_item_by_external_id.return_value = Mock()
+        repo.bulk_create_content_items.return_value = 0
 
         with patch("app.runner.Repository", return_value=repo), patch(
             "app.runner.registry.get_all",
@@ -110,6 +111,7 @@ class TestIngestionScheduler(unittest.TestCase):
         repo = Mock()
         repo.session = Mock()
         repo.get_content_item_by_external_id.return_value = Mock()
+        repo.bulk_create_content_items.return_value = 0
 
         with patch("app.runner.Repository", return_value=repo), patch(
             "app.runner.registry.get_all", return_value=[adapter]
@@ -124,6 +126,125 @@ class TestIngestionScheduler(unittest.TestCase):
         self.assertEqual(first.duplicates_skipped, 2)
         self.assertEqual(second.new_items, 0)
         self.assertEqual(second.duplicates_skipped, 2)
+
+    def test_duplicate_ids_in_one_batch_are_deduplicated(self):
+        adapter = Mock(source_name="Source", source_type="rss")
+        first = Mock()
+        second = Mock()
+        adapter.fetch.return_value = [first, second]
+        normalized = {"external_id": "same-id", "title": "First"}
+        repo = Mock()
+        repo.session = Mock()
+        persisted = Mock(story_content=Mock())
+        repo.get_content_item_by_external_id.side_effect = [
+            None,
+            persisted,
+            persisted,
+        ]
+        repo.bulk_create_content_items.return_value = 1
+
+        with patch("app.runner.Repository", return_value=repo), patch(
+            "app.runner.registry.get_all", return_value=[adapter]
+        ), patch(
+            "app.runner.normalize", return_value=normalized
+        ), patch("app.runner.cluster_content_item") as cluster:
+            _, stats = _run_ingestion(process_ai=False)
+
+        self.assertEqual(stats.items_fetched, 2)
+        self.assertEqual(stats.new_items, 1)
+        self.assertEqual(stats.duplicates_skipped, 1)
+        repo.bulk_create_content_items.assert_called_once_with(
+            "Source", "rss", [normalized]
+        )
+        cluster.assert_called_once_with(repo, persisted)
+
+    def test_partial_insert_count_does_not_run_ai_for_uncertain_items(self):
+        adapter = Mock(source_name="Source", source_type="rss")
+        adapter.fetch.return_value = [Mock(), Mock()]
+        normalized_items = [
+            {"external_id": "first-id", "title": "First"},
+            {"external_id": "second-id", "title": "Second"},
+        ]
+        persisted = [
+            Mock(story_content=Mock()),
+            Mock(story_content=Mock()),
+        ]
+        repo = Mock()
+        repo.session = Mock()
+        repo.get_content_item_by_external_id.side_effect = [
+            None,
+            None,
+            persisted[0],
+            persisted[1],
+            persisted[0],
+            persisted[1],
+        ]
+        repo.bulk_create_content_items.return_value = 1
+        enrichment_provider = Mock()
+        embedding_provider = Mock()
+
+        with patch("app.runner.Repository", return_value=repo), patch(
+            "app.runner.registry.get_all", return_value=[adapter]
+        ), patch(
+            "app.runner.normalize", side_effect=normalized_items
+        ), patch(
+            "app.runner.LocalSentenceTransformerEmbeddingProvider",
+            return_value=embedding_provider,
+        ), patch(
+            "app.runner.initialize_enrichment_provider",
+            return_value=enrichment_provider,
+        ), patch("app.runner.enrich_content_item") as enrich, patch(
+            "app.runner.embed_content_item"
+        ) as embed:
+            _, stats = _run_ingestion(process_ai=True)
+
+        self.assertEqual(stats.new_items, 1)
+        self.assertEqual(stats.duplicates_skipped, 1)
+        enrich.assert_not_called()
+        embed.assert_not_called()
+
+    def test_existing_item_without_story_is_retried(self):
+        adapter = Mock(source_name="Source", source_type="rss")
+        adapter.fetch.return_value = [Mock()]
+        normalized = {"external_id": "existing-id", "title": "Existing"}
+        persisted = Mock(story_content=None)
+        repo = Mock()
+        repo.session = Mock()
+        repo.get_content_item_by_external_id.return_value = persisted
+        repo.bulk_create_content_items.return_value = 0
+
+        with patch("app.runner.Repository", return_value=repo), patch(
+            "app.runner.registry.get_all", return_value=[adapter]
+        ), patch(
+            "app.runner.normalize", return_value=normalized
+        ), patch("app.runner.cluster_content_item") as cluster:
+            _, stats = _run_ingestion(process_ai=False)
+
+        self.assertEqual(stats.new_items, 0)
+        self.assertEqual(stats.duplicates_skipped, 1)
+        repo.bulk_create_content_items.assert_called_once_with(
+            "Source", "rss", [normalized]
+        )
+        cluster.assert_called_once_with(repo, persisted)
+
+    def test_existing_item_with_story_is_not_reclustered(self):
+        adapter = Mock(source_name="Source", source_type="rss")
+        adapter.fetch.return_value = [Mock()]
+        normalized = {"external_id": "associated-id", "title": "Associated"}
+        persisted = Mock(story_content=Mock())
+        repo = Mock()
+        repo.session = Mock()
+        repo.get_content_item_by_external_id.return_value = persisted
+        repo.bulk_create_content_items.return_value = 0
+
+        with patch("app.runner.Repository", return_value=repo), patch(
+            "app.runner.registry.get_all", return_value=[adapter]
+        ), patch(
+            "app.runner.normalize", return_value=normalized
+        ), patch("app.runner.cluster_content_item") as cluster:
+            _run_ingestion(process_ai=False)
+
+        cluster.assert_not_called()
 
 
 if __name__ == "__main__":

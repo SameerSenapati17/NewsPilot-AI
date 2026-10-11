@@ -10,7 +10,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.config import EMBEDDING_DIMENSIONS
 from app.embeddings import LocalSentenceTransformerEmbeddingProvider
-from app.enrichment import ContentEnrichmentResult, EnrichmentCategory, MistralEnrichmentProvider
+from app.enrichment import (
+    ContentEnrichmentResult,
+    EnrichmentCategory,
+    MistralEnrichmentProvider,
+)
 from app.mistral import MistralLLMProvider
 from app.rag import MistralGroundedAnswerProvider
 from app.rag_context import ContextSource, RAGContext
@@ -31,9 +35,27 @@ class TestLocalProviders(unittest.TestCase):
         self.assertEqual(provider.embed_texts([]), [])
 
     def test_mistral_requires_key_without_network(self):
-        provider = MistralLLMProvider(api_key="")
+        session = Mock()
+        provider = MistralLLMProvider(api_key="", session=session)
         with self.assertRaises(RuntimeError):
             provider.complete_json("system", "user")
+        session.post.assert_not_called()
+
+    def test_mistral_sends_bearer_authorization_header(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "choices": [{"message": {"content": '{"answer": "ok"}'}}]
+        }
+        session = Mock()
+        session.post.return_value = response
+        provider = MistralLLMProvider(api_key="test-key", session=session)
+
+        self.assertEqual(provider.complete_json("system", "user"), {"answer": "ok"})
+        request = session.post.call_args
+        self.assertEqual(
+            request.kwargs["headers"]["Authorization"], "Bearer test-key"
+        )
+        self.assertNotIn("test-key", repr(request.kwargs["json"]))
 
     def test_mistral_json_parsing_and_enrichment_validation(self):
         llm = Mock()
