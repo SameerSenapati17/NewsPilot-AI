@@ -20,7 +20,9 @@ class GenericRSSScraper(SourceAdapter):
         seen_guids = set()
         
         for entry in feed.entries:
-            published_parsed = getattr(entry, "published_parsed", None)
+            published_parsed = getattr(
+                entry, "published_parsed", None
+            ) or getattr(entry, "updated_parsed", None)
             if not published_parsed:
                 continue
             

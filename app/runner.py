@@ -1,18 +1,53 @@
+from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
+from time import monotonic
 import logging
 from .database.repository import Repository
 from .normalizer import normalize
 from .scrapers.base import registry
-from .enrichment import EnrichmentProvider, OpenAIEnrichmentProvider
+from .enrichment import EnrichmentProvider, MistralEnrichmentProvider
 from .embeddings import (
     EmbeddingProvider,
-    OpenAIEmbeddingProvider,
+    LocalSentenceTransformerEmbeddingProvider,
     embedding_text_hash,
     prepare_embedding_text,
 )
+from .config import MISTRAL_API_KEY
+from .story_clustering import cluster_content_item
 from . import scrapers as _scrapers_pkg  # noqa: F401 — side-effect import to populate registry
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class IngestionRunStats:
+    sources_checked: int = 0
+    successful_sources: int = 0
+    items_fetched: int = 0
+    new_items: int = 0
+    duplicates_skipped: int = 0
+    failed_items: int = 0
+    failed_sources: int = 0
+    duration_seconds: float = 0.0
+
+
+
+def initialize_enrichment_provider(
+    enrichment_provider: Optional[EnrichmentProvider] = None,
+) -> Optional[EnrichmentProvider]:
+    if enrichment_provider is not None:
+        return enrichment_provider
+    if not MISTRAL_API_KEY or not MISTRAL_API_KEY.strip():
+        logger.warning(
+            "Mistral API key not configured; AI enrichment disabled for this run. "
+            "Local embeddings remain enabled."
+        )
+        return None
+    try:
+        return MistralEnrichmentProvider()
+    except Exception as exc:
+        logger.warning("AI enrichment disabled: provider initialization failed: %s", exc)
+        return None
 
 
 def enrich_content_item(repo: Repository, content_item, provider: EnrichmentProvider) -> bool:
@@ -47,63 +82,105 @@ def embed_content_item(repo: Repository, content_item, provider: EmbeddingProvid
     except Exception as exc:
         logger.error("[EMBEDDING ERROR] %s: %s", content_item.external_id, exc, exc_info=True)
         return False
+def _run_ingestion(
+    hours: int = 24,
+    enrichment_provider: Optional[EnrichmentProvider] = None,
+    process_ai: bool = True,
+) -> tuple[dict, IngestionRunStats]:
+    repo = Repository()
+    try:
+        results: Dict[str, List] = {}
+        stats = IngestionRunStats()
+        started = monotonic()
+        if process_ai:
+            enrichment_provider = initialize_enrichment_provider(enrichment_provider)
+        else:
+            enrichment_provider = None
+        embedding_provider = None
+        if process_ai:
+            try:
+                embedding_provider = LocalSentenceTransformerEmbeddingProvider()
+            except Exception as exc:
+                logger.warning("Embeddings disabled: provider initialization failed: %s", exc)
+                embedding_provider = None
+
+        adapters = registry.get_all()
+        stats.sources_checked = len(adapters)
+
+        logger.info("\n--- Ingestion Summary ---")
+        logger.info(f"{'Source':<22} {'Status':<10} Items")
+        logger.info("-" * 44)
+
+        for adapter in adapters:
+            source_name = adapter.source_name
+            source_type = adapter.source_type
+
+            try:
+                items = adapter.fetch(hours=hours)
+                stats.items_fetched += len(items)
+                normalized_items = [normalize(item) for item in items]
+
+                if normalized_items:
+                    new_external_ids = [
+                        item["external_id"]
+                        for item in normalized_items
+                        if repo.get_content_item_by_external_id(item["external_id"]) is None
+                    ]
+                    stats.new_items += len(new_external_ids)
+                    stats.duplicates_skipped += len(normalized_items) - len(new_external_ids)
+                    repo.bulk_create_content_items(source_name, source_type, normalized_items)
+                    for external_id in new_external_ids:
+                        content_item = repo.get_content_item_by_external_id(external_id)
+                        if content_item is not None:
+                            try:
+                                cluster_content_item(repo, content_item)
+                            except Exception as exc:
+                                logger.error(
+                                    "[STORY CLUSTERING ERROR] %s: %s",
+                                    content_item.external_id,
+                                    exc,
+                                    exc_info=True,
+                                )
+                            if process_ai and enrichment_provider is not None:
+                                enrich_content_item(repo, content_item, enrichment_provider)
+                            if process_ai and embedding_provider is not None:
+                                embed_content_item(repo, content_item, embedding_provider)
+
+                key = source_name.lower().replace(" ", "_").replace("/", "_")
+                results[key] = items
+                stats.successful_sources += 1
+                logger.info(f"{source_name:<22} {'success':<10} {len(items)}")
+
+            except Exception as e:
+                stats.failed_sources += 1
+                stats.failed_items += 1
+                logger.error(f"[INGESTION ERROR] {source_name}: {e}", exc_info=True)
+                logger.info(f"{source_name:<22} {'failed':<10} 0")
+                # Failure isolation: log and continue — other sources are unaffected
+                continue
+
+        logger.info("-" * 44)
+        stats.duration_seconds = monotonic() - started
+        return results, stats
+    finally:
+        repo.session.close()
+
+
+def run_ingestion(hours: int = 24) -> IngestionRunStats:
+    """Run adapter ingestion without adding enrichment or embedding orchestration."""
+    _, stats = _run_ingestion(hours=hours, process_ai=False)
+    return stats
+
+
 def run_scrapers(
     hours: int = 24, enrichment_provider: Optional[EnrichmentProvider] = None
 ) -> dict:
-    repo = Repository()
-    results: Dict[str, List] = {}
-    if enrichment_provider is None:
-        try:
-            enrichment_provider = OpenAIEnrichmentProvider()
-        except Exception as exc:
-            logger.warning("AI enrichment disabled: provider initialization failed: %s", exc)
-            enrichment_provider = None
-    try:
-        embedding_provider = OpenAIEmbeddingProvider()
-    except Exception as exc:
-        logger.warning("Embeddings disabled: provider initialization failed: %s", exc)
-        embedding_provider = None
-
-    adapters = registry.get_all()
-
-    logger.info("\n--- Ingestion Summary ---")
-    logger.info(f"{'Source':<22} {'Status':<10} Items")
-    logger.info("-" * 44)
-
-    for adapter in adapters:
-        source_name = adapter.source_name
-        source_type = adapter.source_type
-
-        try:
-            items = adapter.fetch(hours=hours)
-            normalized_items = [normalize(item) for item in items]
-
-            if normalized_items:
-                new_external_ids = [
-                    item["external_id"]
-                    for item in normalized_items
-                    if repo.get_content_item_by_external_id(item["external_id"]) is None
-                ]
-                repo.bulk_create_content_items(source_name, source_type, normalized_items)
-                for external_id in new_external_ids:
-                    content_item = repo.get_content_item_by_external_id(external_id)
-                    if content_item is not None:
-                        if enrichment_provider is not None:
-                            enrich_content_item(repo, content_item, enrichment_provider)
-                        if embedding_provider is not None:
-                            embed_content_item(repo, content_item, embedding_provider)
-
-            key = source_name.lower().replace(" ", "_").replace("/", "_")
-            results[key] = items
-            logger.info(f"{source_name:<22} {'success':<10} {len(items)}")
-
-        except Exception as e:
-            logger.error(f"[INGESTION ERROR] {source_name}: {e}", exc_info=True)
-            logger.info(f"{source_name:<22} {'failed':<10} 0")
-            # Failure isolation: log and continue — other sources are unaffected
-            continue
-
-    logger.info("-" * 44)
+    """Legacy one-shot ingestion API, preserving its existing return shape."""
+    results, _ = _run_ingestion(
+        hours=hours,
+        enrichment_provider=enrichment_provider,
+        process_ai=True,
+    )
     return results
 
 

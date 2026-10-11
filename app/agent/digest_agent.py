@@ -1,10 +1,6 @@
-import os
 from typing import Optional
-from openai import OpenAI
 from pydantic import BaseModel
-from dotenv import load_dotenv
-
-load_dotenv()
+from ..mistral import MistralLLMProvider
 
 
 class DigestOutput(BaseModel):
@@ -24,25 +20,17 @@ Guidelines:
 
 
 class DigestAgent:
-    def __init__(self):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-4o-mini"
+    def __init__(self, client: Optional[MistralLLMProvider] = None):
+        self.client = client or MistralLLMProvider()
         self.system_prompt = PROMPT
 
     def generate_digest(self, title: str, content: str, article_type: str) -> Optional[DigestOutput]:
         try:
             user_prompt = f"Create a digest for this {article_type}: \n Title: {title} \n Content: {content[:8000]}"
 
-            response = self.client.responses.parse(
-                model=self.model,
-                instructions=self.system_prompt,
-                temperature=0.7,
-                input=user_prompt,
-                text_format=DigestOutput
+            return DigestOutput.model_validate(
+                self.client.complete_json(self.system_prompt, user_prompt)
             )
-            
-            return response.output_parsed
         except Exception as e:
             print(f"Error generating digest: {e}")
             return None
-

@@ -1,10 +1,6 @@
-import os
 from typing import List
-from openai import OpenAI
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
-
-load_dotenv()
+from ..mistral import MistralLLMProvider
 
 
 class RankedArticle(BaseModel):
@@ -40,9 +36,8 @@ Rank articles from most relevant (rank 1) to least relevant. Ensure each article
 
 
 class CuratorAgent:
-    def __init__(self, user_profile: dict):
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.model = "gpt-4.1"
+    def __init__(self, user_profile: dict, client: MistralLLMProvider | None = None):
+        self.client = client or MistralLLMProvider()
         self.user_profile = user_profile
         self.system_prompt = self._build_system_prompt()
 
@@ -80,16 +75,10 @@ Preferences:
 Provide a relevance score (0.0-10.0) and rank (1-{len(digests)}) for each article, ordered from most to least relevant."""
 
         try:
-            response = self.client.responses.parse(
-                model=self.model,
-                instructions=self.system_prompt,
-                temperature=0.3,
-                input=user_prompt,
-                text_format=RankedDigestList
+            ranked_list = RankedDigestList.model_validate(
+                self.client.complete_json(self.system_prompt, user_prompt)
             )
-            
-            ranked_list = response.output_parsed
-            return ranked_list.articles if ranked_list else []
+            return ranked_list.articles
         except Exception as e:
             print(f"Error ranking digests: {e}")
             return []

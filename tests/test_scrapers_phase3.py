@@ -91,6 +91,14 @@ RSS_ENTRY = {
 RSS_FIXTURE = _make_feed([RSS_ENTRY])
 EMPTY_FEED   = _make_feed([])
 NO_DATE_FEED = _make_feed([{"id": "x", "title": "no date", "link": "http://x.com"}])
+ATOM_ENTRY = {
+    "id": "https://developer.example.com/post2",
+    "title": "Atom article",
+    "description": "Atom description",
+    "link": "https://developer.example.com/post2",
+    "updated_parsed": (2026, 1, 1, 12, 0, 0, 0, 0, 0),
+}
+ATOM_FIXTURE = _make_feed([ATOM_ENTRY])
 
 
 class TestGenericRSSScraper(unittest.TestCase):
@@ -137,6 +145,12 @@ class TestGenericRSSScraper(unittest.TestCase):
     def test_fetch_skips_entries_without_published_parsed(self, _mock):
         articles = GenericRSSScraper(name="T", rss_url="x").fetch(hours=24)
         self.assertEqual(articles, [])
+
+    @patch("app.scrapers.rss_generic.feedparser.parse", return_value=ATOM_FIXTURE)
+    def test_fetch_accepts_atom_updated_timestamp(self, _mock):
+        articles = GenericRSSScraper(name="NVIDIA AI", rss_url="x").fetch(hours=87600)
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0].title, "Atom article")
 
 
 # ---------------------------------------------------------------------------

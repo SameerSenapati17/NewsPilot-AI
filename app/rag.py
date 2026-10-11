@@ -2,12 +2,16 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, List
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:  # Optional legacy provider dependency.
+    OpenAI = None
 from pydantic import BaseModel
 
 from .rag_context import ContextSource, RAGContext, build_context
 from .retrieval import SemanticRetrieval
 from .config import RAG_MODEL, RAG_MAX_CONTEXT_ITEMS, RAG_MAX_CONTEXT_CHARS
+from .mistral import MistralLLMProvider
 
 
 class RAGAnswer(BaseModel):
@@ -29,6 +33,8 @@ class GroundedAnswerProvider(ABC):
 
 class OpenAIGroundedAnswerProvider(GroundedAnswerProvider):
     def __init__(self, client: Any = None, model: str = RAG_MODEL):
+        if client is None and OpenAI is None:
+            raise RuntimeError("openai is only required for the legacy provider")
         self.client = client or OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = model
 
@@ -44,6 +50,22 @@ class OpenAIGroundedAnswerProvider(GroundedAnswerProvider):
         if result is None:
             raise RuntimeError("Answer provider returned no structured answer")
         return RAGAnswer(answer=result.answer, sources=context.sources)
+
+
+class MistralGroundedAnswerProvider(GroundedAnswerProvider):
+    def __init__(self, client: MistralLLMProvider | None = None):
+        self.client = client or MistralLLMProvider()
+
+    def answer(self, query: str, context: RAGContext) -> RAGAnswer:
+        payload = self.client.complete_json(
+            GROUNDED_ANSWER_PROMPT
+            + '\nReturn a JSON object with one string field named "answer".',
+            f"Question: {query}\n\nRetrieved context:\n{context.context_text}",
+        )
+        answer = payload.get("answer")
+        if not isinstance(answer, str) or not answer.strip():
+            raise RuntimeError("Mistral returned no grounded answer")
+        return RAGAnswer(answer=answer, sources=context.sources)
 
 
 class RAGService:

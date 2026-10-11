@@ -14,6 +14,7 @@ from app.database.connection import get_engine
 from app.database.models import ContentEmbedding, ContentItem
 from app.database.repository import Repository
 from app.embeddings import EmbeddingResult
+from app.config import EMBEDDING_DIMENSIONS
 from app.rag_context import build_context
 from app.retrieval import SemanticRetrieval
 
@@ -23,8 +24,8 @@ PREFIX = "phase7_verify_"
 
 class FixedEmbeddingProvider:
     def embed_batch(self, texts):
-        vector = [1.0] + [0.0] * 1535
-        return [EmbeddingResult(embedding=vector, dimensions=1536) for _ in texts]
+        vector = [1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 1)
+        return [EmbeddingResult(embedding=vector, dimensions=EMBEDDING_DIMENSIONS) for _ in texts]
 
 
 def check(label, condition):
@@ -58,7 +59,8 @@ def main():
         )
         temporary_items.append(item)
         repository.create_content_embedding(
-            item.id, [1.0] + [0.0] * 1535, "phase7-test", 1536, "0" * 64
+            item.id, [1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 1),
+            "phase7-test", EMBEDDING_DIMENSIONS, "0" * 64
         )
         check("temporary embedding created", repository.get_content_embedding(item.id) is not None)
 

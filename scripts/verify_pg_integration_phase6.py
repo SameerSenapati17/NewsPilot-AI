@@ -43,6 +43,10 @@ def verify_pg_integration_phase6() -> bool:
         column = ContentEmbedding.__table__.c.embedding
         check(column.type.dim == EMBEDDING_DIMENSIONS,
               f"vector column dimension is {EMBEDDING_DIMENSIONS}")
+        incompatible = session.query(ContentEmbedding).filter(
+            ContentEmbedding.dimensions != EMBEDDING_DIMENSIONS
+        ).count()
+        check(incompatible == 0, "no incompatible old embedding dimensions remain")
 
         source = repo._get_or_create_source(f"{PREFIX}source", "phase6-verification")
         source_id = source.id

@@ -94,6 +94,10 @@ def search(
         results = retrieval.retrieve(q, top_k, min_similarity)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail="Local embedding provider unavailable"
+        ) from exc
 
     return {
         "query": q,
@@ -136,7 +140,12 @@ def personalized(
 ):
     if not q.strip():
         raise HTTPException(status_code=400, detail="q is required")
-    results = retrieval.retrieve(q, top_k=top_k)
+    try:
+        results = retrieval.retrieve(q, top_k=top_k)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail="Local embedding provider unavailable"
+        ) from exc
     candidates = []
     for result in results:
         enrichment = repository.get_content_enrichment(result.content_item_id)

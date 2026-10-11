@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.database.connection import get_engine
+from app.config import EMBEDDING_DIMENSIONS
 from app.database.models import Base
 from sqlalchemy import text
 
@@ -38,6 +39,23 @@ def init_db():
                     "extension before initializing the Phase 6 schema."
                 )
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            existing_dimension = connection.execute(text("""
+                SELECT format_type(a.atttypid, a.atttypmod)
+                FROM pg_attribute a
+                JOIN pg_class c ON c.oid = a.attrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'public'
+                  AND c.relname = 'content_embeddings'
+                  AND a.attname = 'embedding'
+                  AND NOT a.attisdropped
+            """)).scalar()
+            expected_type = f"vector({EMBEDDING_DIMENSIONS})"
+            if existing_dimension and existing_dimension != expected_type:
+                print(
+                    "Embedding dimension changed; recreating only "
+                    "content_embeddings and invalidating old vectors."
+                )
+                connection.execute(text("DROP TABLE public.content_embeddings"))
     # create_all is safe and idempotent. It will only create tables that do not exist.
     Base.metadata.create_all(engine)
     print("Database initialization complete. All required tables exist.")

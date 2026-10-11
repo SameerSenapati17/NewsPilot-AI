@@ -102,6 +102,61 @@ class Repository:
         )
         return stories, total
 
+    def create_story(self, title: str, first_seen_at: Optional[datetime] = None) -> Story:
+        story = Story(
+            title=title,
+            first_seen_at=first_seen_at or datetime.utcnow(),
+            last_updated_at=first_seen_at or datetime.utcnow(),
+        )
+        self.session.add(story)
+        self.session.flush()
+        return story
+
+    def get_story(self, story_id: str) -> Optional[Story]:
+        return self.session.query(Story).filter_by(id=story_id).first()
+
+    def find_candidate_stories(
+        self, published_at: datetime, window_hours: int
+    ) -> List[Story]:
+        window = timedelta(hours=window_hours)
+        return (
+            self.session.query(Story)
+            .filter(
+                Story.last_updated_at >= published_at - window,
+                Story.last_updated_at <= published_at + window,
+            )
+            .order_by(Story.last_updated_at.desc())
+            .all()
+        )
+
+    def attach_content_item_to_story(
+        self, story_id: str, content_item_id: str
+    ) -> Optional[StoryContent]:
+        existing = self.session.query(StoryContent).filter_by(
+            content_item_id=content_item_id
+        ).first()
+        if existing:
+            if existing.story_id != story_id:
+                raise ValueError("ContentItem is already associated with another Story")
+            return existing
+        if self.get_story(story_id) is None:
+            raise ValueError("Story does not exist")
+        if self.session.query(ContentItem).filter_by(id=content_item_id).first() is None:
+            raise ValueError("ContentItem does not exist")
+        association = StoryContent(story_id=story_id, content_item_id=content_item_id)
+        self.session.add(association)
+        self.session.flush()
+        return association
+
+    def get_story_content_items(self, story_id: str) -> List[ContentItem]:
+        return (
+            self.session.query(ContentItem)
+            .join(StoryContent, StoryContent.content_item_id == ContentItem.id)
+            .filter(StoryContent.story_id == story_id)
+            .order_by(ContentItem.published_at.asc())
+            .all()
+        )
+
     def create_content_enrichment(
         self, content_item_id: str, result: Any, model_name: str, prompt_version: str
     ) -> Optional[ContentEnrichment]:

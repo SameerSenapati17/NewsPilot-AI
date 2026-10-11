@@ -3,8 +3,8 @@ from collections.abc import Generator
 from fastapi import Depends
 
 from ..database.repository import Repository
-from ..embeddings import OpenAIEmbeddingProvider
-from ..rag import OpenAIGroundedAnswerProvider, RAGService
+from ..embeddings import LocalSentenceTransformerEmbeddingProvider
+from ..rag import MistralGroundedAnswerProvider, RAGService
 from ..retrieval import SemanticRetrieval
 
 
@@ -17,8 +17,8 @@ def get_repository() -> Generator[Repository, None, None]:
 
 
 def get_retrieval(repository: Repository = Depends(get_repository)):
-    return SemanticRetrieval(repository, OpenAIEmbeddingProvider())
+    return SemanticRetrieval(repository, LocalSentenceTransformerEmbeddingProvider())
 
 
 def get_rag_service(retrieval=Depends(get_retrieval)):
-    return RAGService(retrieval, OpenAIGroundedAnswerProvider())
+    return RAGService(retrieval, MistralGroundedAnswerProvider())

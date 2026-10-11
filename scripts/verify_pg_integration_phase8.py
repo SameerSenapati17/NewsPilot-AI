@@ -21,6 +21,7 @@ from app.database.models import (
     StoryContent,
 )
 from app.embeddings import EmbeddingResult
+from app.config import EMBEDDING_DIMENSIONS
 from app.profiles.user_profile import UserProfile
 from app.ranking import PersonalizedRanker, RankingCandidate
 from app.retrieval import SemanticRetrieval
@@ -32,8 +33,8 @@ PREFIX = f"phase8-verification-{uuid.uuid4().hex}-"
 
 class FixedEmbeddingProvider:
     def embed_batch(self, texts):
-        vector = [1.0] + [0.0] * 1535
-        return [EmbeddingResult(embedding=vector, dimensions=1536) for _ in texts]
+        vector = [1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 1)
+        return [EmbeddingResult(embedding=vector, dimensions=EMBEDDING_DIMENSIONS) for _ in texts]
 
 
 def check(condition, message):
@@ -102,9 +103,9 @@ def main():
             ))
             session.add(ContentEmbedding(
                 content_item_id=item.id,
-                embedding=[1.0] + [0.0] * 1535,
+                embedding=[1.0] + [0.0] * (EMBEDDING_DIMENSIONS - 1),
                 embedding_model="phase8-test",
-                dimensions=1536,
+                dimensions=EMBEDDING_DIMENSIONS,
                 text_hash=("a" * 63) + str(len(item_ids)),
             ))
         session.commit()

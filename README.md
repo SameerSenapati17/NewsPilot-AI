@@ -77,8 +77,13 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=ai_news_aggregator
 
-# OpenAI API key (for digest + curation + email agents)
-OPENAI_API_KEY=sk-...
+# Mistral API key (for enrichment, RAG, digest, curation, and email)
+MISTRAL_API_KEY=...
+MISTRAL_MODEL=codestral-2508
+
+# Local CPU embeddings
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+EMBEDDING_DIMENSION=384
 
 # Gmail SMTP for sending digest email
 MY_EMAIL=you@gmail.com
@@ -196,7 +201,7 @@ controlled category, JSON topic/entity lists, and model-generated scores from
 These scores are heuristics, not ground-truth measurements.
 
 The enrichment provider is isolated behind `EnrichmentProvider`, with the
-existing OpenAI structured-output client used by the default implementation.
+Mistral structured JSON client used by the default implementation.
 Input is metadata-first and capped at `ENRICHMENT_MAX_CONTENT_CHARS` (12,000
 characters by default), with deterministic body truncation. Provider failures
 are logged without deleting the ContentItem, and existing enrichment records
@@ -205,11 +210,12 @@ are skipped so ingestion is idempotent.
 ### Semantic embeddings
 
 Phase 6 stores one numerical semantic representation per `ContentItem` in the
-PostgreSQL `vector` type supplied by `pgvector`. The default provider uses
-OpenAI `text-embedding-3-small` with 1,536 dimensions; model, dimensions,
-batch size, and the 12,000-character deterministic input limit are configurable
-through environment variables. Input contains stable title, source, content
-type, and body fields and does not include timestamps, summaries, or user data.
+PostgreSQL `vector` type supplied by `pgvector`. The default provider uses the
+local CPU Sentence Transformer `all-MiniLM-L6-v2` with 384 dimensions. The
+model, dimensions, batch size, and the 12,000-character deterministic input
+limit are configurable through environment variables. Input contains stable
+title, source, content type, and body fields and does not include timestamps,
+summaries, or user data.
 
 The SHA-256 hash of that prepared input is stored in `text_hash`; unchanged
 content skips the provider, while changed content is regenerated. Similarity
@@ -316,3 +322,58 @@ OpenAPI document is available at `/openapi.json` and ReDoc at `/redoc`.
 Next.js development. Authentication is intentionally not included in Phase
 10. API errors use safe HTTP messages and never expose credentials, SQL,
 filesystem paths, or provider stack traces.
+
+### AI provider architecture
+
+NewsPilotAI uses local Sentence Transformers embeddings and PostgreSQL
+pgvector for semantic retrieval. The default CPU-compatible model is
+`sentence-transformers/all-MiniLM-L6-v2`, producing normalized 384-dimensional
+vectors. The model is loaded lazily and cached for reuse; it is never called
+from the browser. `EMBEDDING_MODEL` and `EMBEDDING_DIMENSION` are configurable.
+
+Mistral is used only for generative operations: structured AI enrichment and
+grounded RAG answers. Configure `MISTRAL_API_KEY` and `MISTRAL_MODEL` on the
+backend. Mistral receives only structured prompts and retrieved context; its
+responses are validated through the existing Pydantic schemas. Missing Mistral
+configuration disables only LLM-dependent operations, while search,
+personalized ranking, trends, news, and stories remain deterministic/local.
+
+`OPENAI_API_KEY` is not required for the standard architecture. The legacy
+OpenAI provider classes remain optional compatibility adapters only.
+
+When the configured pgvector dimension changes, `scripts/init_db.py` safely
+recreates only `content_embeddings`, invalidating incompatible old vectors
+while preserving ContentItems, Stories, and enrichment data. It never drops
+the database or unrelated tables.
+
+### Frontend dashboard
+
+Phase 11 adds a separate Next.js/TypeScript dashboard in
+[`frontend/`](./frontend). It is a presentation layer over the FastAPI
+intelligence API and never connects directly to PostgreSQL or OpenAI.
+
+Routes:
+
+- `/` — intelligence dashboard with trends, personalized items, recent news,
+  and a Quick Ask entry point
+- `/discover` — recent normalized news
+- `/search` — semantic search
+- `/ask` — grounded RAG answers and returned source attribution
+- `/trends` — emerging trend exploration
+- `/personalized` — explainable personalized ranking
+
+Run the backend and frontend separately:
+
+```bash
+uvicorn app.api.main:app --reload
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Set `NEXT_PUBLIC_API_BASE_URL` to the FastAPI origin when it is not
+`http://localhost:8000`. The frontend does not contain authentication,
+user-account management, notifications, or background jobs. API loading,
+error, and empty states are rendered explicitly, and external source links
+use safe new-tab behavior.
